@@ -5,6 +5,9 @@ from tutorial.quickstart.serializers import GroupSerializer, UserSerializer
 from .models import Alumno, Carrera, Inscripcion, Materia, Imagen
 from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer
 
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
+
 class UserViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows users to be viewed or edited.
@@ -33,6 +36,10 @@ class MateriaViewSet(viewsets.ModelViewSet):
 class AlumnoViewSet(viewsets.ModelViewSet):
     queryset = Alumno.objects.all()
     serializer_class = AlumnoSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['carrera']
+    search_fields = ['user', 'apellido_paterno', 'numero_control']
+    ordering_fields = ['user', 'numero_control']
 
 class InscripcionViewSet(viewsets.ModelViewSet):
     queryset = Inscripcion.objects.all()
