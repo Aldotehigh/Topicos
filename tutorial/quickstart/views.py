@@ -3,15 +3,18 @@ from rest_framework import permissions, viewsets
 
 from tutorial.quickstart.serializers import GroupSerializer, UserSerializer
 from .models import Alumno, Carrera, Inscripcion, Materia, Imagen
-from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer
+from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer, RegisterSerializer
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
-from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.views import APIView, ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+from rest_framework import status
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -62,6 +65,21 @@ class CustomAuthToken(ObtainAuthToken):
             'user_id': user.pk,
             'email': user.email
         })
+
+class RegisterView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid(raise_exception=True):
+            user = serializer.save()
+            return Response({
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'detail': 'User registered successfully. Log in to obtain the token.'
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()

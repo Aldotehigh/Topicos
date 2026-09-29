@@ -43,7 +43,6 @@ class Inscripcion(models.Model):
     calificacion = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
     ciclo = models.CharField(max_length=11)
 
-
     class Meta:
         unique_together = ('alumno', 'materia')
 
