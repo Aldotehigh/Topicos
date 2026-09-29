@@ -3,6 +3,7 @@ from rest_framework import serializers
 from .models import Alumno, Carrera, Imagen, Inscripcion, Materia
 
 from django.contrib.auth.password_validation import validate_password
+from rest_framework.validators import UniqueValidator
 
 
 class UserSerializer(serializers.HyperlinkedModelSerializer):
@@ -45,7 +46,8 @@ class ImagenSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
-    email = serializers.EmailField(required=True)
+    email = serializers.EmailField(required=True
+    )
     class Meta:
         model = User
         fields = ['username', 'email', 'password']
@@ -60,6 +62,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Username is already in use.")
         return value
 
+    def password_must_have_number(value):
+        if not any(char.isdigit() for char in value):
+            raise serializers.ValidationError(
+            "La contraseña debe contener al menos un número."
+        )
+        return value
+    
+    password = serializers.CharField(
+        write_only=True,
+        min_length=6,
+        validators=[password_must_have_number]
+)
+    
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data['username'],
