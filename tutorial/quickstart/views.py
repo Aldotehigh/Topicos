@@ -16,6 +16,10 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework import status
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from .permissions import IsAdminOrReadOnly
+
 class UserViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows users to be viewed or edited.
@@ -36,14 +40,17 @@ class GroupViewSet(viewsets.ModelViewSet):
 class CarreraViewSet(viewsets.ModelViewSet):
     queryset = Carrera.objects.all()
     serializer_class = CarreraSerializer
+    permission_classes = [IsAdminOrReadOnly]
 
 class MateriaViewSet(viewsets.ModelViewSet):
     queryset = Materia.objects.all()
     serializer_class = MateriaSerializer
+    permission_classes = [IsAdminOrReadOnly]
 
 class AlumnoViewSet(viewsets.ModelViewSet):
     queryset = Alumno.objects.all()
     serializer_class = AlumnoSerializer
+    permission_classes = [IsAdminOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['carrera']
     search_fields = ['user', 'apellido_paterno', 'numero_control']
@@ -67,7 +74,7 @@ class CustomAuthToken(ObtainAuthToken):
         })
 
 class RegisterView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -80,6 +87,36 @@ class RegisterView(APIView):
                 'detail': 'User registered successfully. Log in to obtain the token.'
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def me(request):
+
+    user = request.user
+    if request.method == 'GET':
+        return Response({
+            'id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'is_staff': user.is_staff
+        })
+    #PATCH method to update user information
+    data = request.data
+    if 'email' in data:
+        if User.objects.filter(email__iexact=data['email']).exclude(id=user.id).exists():
+            return Response({'error': 'Email is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.email = data['email']
+        if 'username' in data:
+            if User.objects.filter(username__iexact=data['username']).exclude(id=user.id).exists():
+                return Response({'error': 'Username is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
+            user.username = data['username']
+    user.save()
+    return Response({
+        'id': user.id,
+        'email': user.email,
+        'username': user.username,
+        'is_staff': user.is_staff
+    })
 
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()
