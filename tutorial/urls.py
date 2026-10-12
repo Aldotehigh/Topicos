@@ -3,8 +3,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from tutorial.quickstart import views
-from .quickstart.views import CustomAuthToken, RegisterView
-
+from .quickstart.views import CustomAuthToken, RegisterView, LogoutView, ResetTokenView
 from .quickstart.views import me
 
 router = routers.DefaultRouter()
@@ -19,6 +18,8 @@ urlpatterns = [
     path("", include("tutorial.quickstart.urls")),
     path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
     path("api-token-auth/", CustomAuthToken.as_view(), name="api_token_auth"),
-    path("register/", views.RegisterView.as_view(), name="api_register"),
+    path("register/", RegisterView.as_view(), name="api_register"),
     path('me', me, name='me'),
+    path('logout/', LogoutView.as_view(), name='logout'),
+    path('reset-token/', ResetTokenView.as_view(), name='reset_token'),
 ]

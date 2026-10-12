@@ -119,6 +119,32 @@ def me(request):
         'is_staff': user.is_staff
     })
 
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        request.user.auth_token.delete()
+        return Response(
+            {'detail': "Sesión cerrada correctamente."},
+            status=status.HTTP_200_OK,
+        )
+
+class ResetTokenView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        #Elimina el token actual si existe
+        Token.objects.filter(user=request.user).delete()
+       #Crea el nuevo token
+        token = Token.objects.create(user=request.user)
+        return Response(
+            {
+                "token": token.key,
+                "detail": "Token reseteado correctamente."
+            },
+            status=status.HTTP_200_OK
+        )
+
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()
     serializer_class = ImagenSerializer
