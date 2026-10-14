@@ -2,8 +2,8 @@ from django.contrib.auth.models import Group, User
 from rest_framework import permissions, viewsets
 
 from tutorial.quickstart.serializers import GroupSerializer, UserSerializer
-from .models import Alumno, Carrera, Inscripcion, Materia, Imagen
-from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer, RegisterSerializer
+from .models import Alumno, Carrera, Inscripcion, Materia, Imagen, Card
+from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer, RegisterSerializer, CardSerializers
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
@@ -144,6 +144,9 @@ class ResetTokenView(APIView):
             },
             status=status.HTTP_200_OK
         )
+class CardViewSet(viewsets.ModelViewSet):
+    queryset = Card.objects.all()
+    serializer_class = CardSerializers
 
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()

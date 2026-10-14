@@ -1,9 +1,8 @@
 from django.contrib.auth.models import Group, User
 from rest_framework import serializers
-from .models import Alumno, Carrera, Imagen, Inscripcion, Materia
+from .models import Alumno, Carrera, Imagen, Inscripcion, Materia, Card
 
 from django.contrib.auth.password_validation import validate_password
-from rest_framework.validators import UniqueValidator
 
 
 
@@ -83,3 +82,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         return user
+
+class CardSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = Card
+        fields = ['id', 'title', 'imagen', 'descripcion']
+        read_only_fields = ['id']

@@ -48,3 +48,12 @@ class Inscripcion(models.Model):
 
     def __str__(self):
         return f"{self.alumno} - {self.materia}"
+
+class Card(models.Model):
+    title = models.CharField(max_length=100)
+    imagen = models.ImageField(upload_to='cards/', blank=True, null=True)
+    descripcion = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.title
+    
