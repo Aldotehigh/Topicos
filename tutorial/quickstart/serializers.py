@@ -84,7 +84,19 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 class CardSerializers(serializers.ModelSerializer):
+    image = serializers.ImageField(
+        source='imagen',
+        required=False,
+        allow_null=True,
+    )
+    description = serializers.CharField(
+        source='descripcion',
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     class Meta:
         model = Card
-        fields = ['id', 'title', 'imagen', 'descripcion']
+        fields = ['id', 'title', 'image', 'description', 'price', 'is_available']
         read_only_fields = ['id']
