@@ -2,8 +2,8 @@ from django.contrib.auth.models import Group, User
 from rest_framework import permissions, viewsets
 
 from tutorial.quickstart.serializers import GroupSerializer, UserSerializer
-from .models import Alumno, Carrera, Inscripcion, Materia, Imagen, Card
-from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer, RegisterSerializer, CardSerializers
+from .models import Alumno, Carrera, Inscripcion, Materia, Imagen, Card, Category
+from .serializers import AlumnoSerializer, CarreraSerializer, InscripcionSerializer, MateriaSerializer, ImagenSerializer, RegisterSerializer, CardSerializers, CategorySerializer
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
@@ -19,6 +19,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from .permissions import IsAdminOrReadOnly
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -144,9 +147,57 @@ class ResetTokenView(APIView):
             },
             status=status.HTTP_200_OK
         )
+class CardPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 30
+
 class CardViewSet(viewsets.ModelViewSet):
-    queryset = Card.objects.all()
+    queryset = Card.objects.select_related('category').order_by('id')
     serializer_class = CardSerializers
+    pagination_class = CardPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['category', 'is_available']
+    search_fields = ['title', 'descripcion']
+    @action(
+        detail=True,
+        methods=['get', 'post', 'delete'],
+        permission_classes=[IsAuthenticated],
+    )
+    def favorite(self, request, pk=None):
+        card = self.get_object()
+
+        if request.method == 'POST':
+            card.favorited_by.add(request.user)
+            return Response({'is_favorite': True})
+
+        if request.method == 'DELETE':
+            card.favorited_by.remove(request.user)
+            return Response({'is_favorite': False})
+
+        is_favorite = card.favorited_by.filter(pk=request.user.pk).exists()
+        return Response({'is_favorite': is_favorite})
+
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[IsAuthenticated],
+    )
+    def favorites(self, request):
+        queryset = self.get_queryset().filter(favorited_by=request.user)
+        queryset = self.filter_queryset(queryset)
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Category.objects.order_by('name', 'id')
+    serializer_class = CategorySerializer
 
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()

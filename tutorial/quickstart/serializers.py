@@ -1,6 +1,6 @@
 from django.contrib.auth.models import Group, User
 from rest_framework import serializers
-from .models import Alumno, Carrera, Imagen, Inscripcion, Materia, Card
+from .models import Alumno, Carrera, Imagen, Inscripcion, Materia, Card, Category
 
 from django.contrib.auth.password_validation import validate_password
 
@@ -83,6 +83,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
         return user
 
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'name']
+
 class CardSerializers(serializers.ModelSerializer):
     image = serializers.ImageField(
         source='imagen',
@@ -95,8 +100,17 @@ class CardSerializers(serializers.ModelSerializer):
         allow_blank=True,
         allow_null=True,
     )
+    category = CategorySerializer(read_only=True)
+
+    category_id = serializers.PrimaryKeyRelatedField(
+        source='category',
+        queryset=Category.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Card
-        fields = ['id', 'title', 'image', 'description', 'price', 'is_available']
+        fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id']
         read_only_fields = ['id']
