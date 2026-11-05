@@ -1,3 +1,7 @@
+from .roles import get_user_role
+from .permissions import CanManageMenu
+from .serializers import CardAvailabilitySerializer, CurrentUserUpdateSerializer
+from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth.models import Group, User
 from rest_framework import permissions, viewsets
 
@@ -29,7 +33,7 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]
 
 
 class GroupViewSet(viewsets.ModelViewSet):
@@ -38,7 +42,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     """
     queryset = Group.objects.all().order_by("name")
     serializer_class = GroupSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]
 
 class CarreraViewSet(viewsets.ModelViewSet):
     queryset = Carrera.objects.all()
@@ -65,7 +69,6 @@ class InscripcionViewSet(viewsets.ModelViewSet):
 
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
-        print("Request data:", request.data)  # Debugging line
         serializer = self.serializer_class(data=request.data,
                                            context={'request': request})
         serializer.is_valid(raise_exception=True)
@@ -95,31 +98,28 @@ class RegisterView(APIView):
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def me(request):
-
     user = request.user
-    if request.method == 'GET':
-        return Response({
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'is_staff': user.is_staff
-        })
-    #PATCH method to update user information
-    data = request.data
-    if 'email' in data:
-        if User.objects.filter(email__iexact=data['email']).exclude(id=user.id).exists():
-            return Response({'error': 'Email is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
-        user.email = data['email']
-        if 'username' in data:
-            if User.objects.filter(username__iexact=data['username']).exclude(id=user.id).exists():
-                return Response({'error': 'Username is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
-            user.username = data['username']
-    user.save()
+
+    if request.method == 'PATCH':
+        protected_fields = {'role', 'is_staff', 'is_superuser', 'groups', 'user_permissions'}
+        if protected_fields.intersection(request.data):
+            return Response(
+                {'detail': 'Los roles y permisos solo se cambian desde administración.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = CurrentUserUpdateSerializer(user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+    role = get_user_role(user)
     return Response({
         'id': user.id,
         'email': user.email,
         'username': user.username,
-        'is_staff': user.is_staff
+        'is_staff': user.is_staff,
+        'role': role,
+        'can_manage_menu': role == 'admin',
+        'area': role if role in ('kitchen', 'bar') else None,
     })
 
 class LogoutView(APIView):
@@ -155,6 +155,7 @@ class CardPagination(PageNumberPagination):
 class CardViewSet(viewsets.ModelViewSet):
     queryset = Card.objects.select_related('category').order_by('id')
     serializer_class = CardSerializers
+    permission_classes = [IsAuthenticated, CanManageMenu]
     pagination_class = CardPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['category', 'is_available']
@@ -195,9 +196,28 @@ class CardViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['patch'], permission_classes=[IsAuthenticated])
+    def availability(self, request, pk=None):
+        card = self.get_object()
+        role = get_user_role(request.user)
+        assigned_area = card.category.area if card.category else None
+
+        if role != 'admin' and (
+            role not in ('kitchen', 'bar') or role != assigned_area
+        ):
+            raise PermissionDenied('Solo puedes cambiar la disponibilidad de tu área.')
+
+        serializer = CardAvailabilitySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        card.is_available = serializer.validated_data['is_available']
+        card.save(update_fields=['is_available'])
+        return Response(self.get_serializer(card).data)
+
+
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Category.objects.order_by('name', 'id')
     serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated]
 
 class ImagenViewSet(viewsets.ModelViewSet):
     queryset = Imagen.objects.all()

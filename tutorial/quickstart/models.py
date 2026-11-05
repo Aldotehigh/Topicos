@@ -52,6 +52,16 @@ class Inscripcion(models.Model):
         return f"{self.alumno} - {self.materia}"
 
 class Category(models.Model):
+    class Area(models.TextChoices):
+        KITCHEN = 'kitchen', 'Cocina'
+        BAR = 'bar', 'Barra'
+
+    area = models.CharField(
+        'Área',
+        max_length=10,
+        choices=Area.choices,
+        default=Area.KITCHEN,
+    )
     name = models.CharField(max_length=100, unique=True)
 
     class Meta:
@@ -90,3 +100,32 @@ class Card(models.Model):
     def __str__(self):
         return self.title
     
+
+class Profile(models.Model):
+    class Role(models.TextChoices):
+        CUSTOMER = 'customer', 'Cliente'
+        KITCHEN = 'kitchen', 'Responsable de cocina'
+        BAR = 'bar', 'Responsable de barra'
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(
+        'Rol', max_length=10, choices=Role.choices, default=Role.CUSTOMER,
+        help_text='Para administrador, activa Es staff en la cuenta de usuario.',
+    )
+
+    class Meta:
+        verbose_name = 'Perfil'
+        verbose_name_plural = 'Perfiles'
+
+    def __str__(self):
+        return self.user.username
+
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+
+@receiver(post_save, sender=User, dispatch_uid='quickstart.create_user_profile')
+def create_user_profile(sender, instance, created, raw=False, **kwargs):
+    if created and not raw:
+        Profile.objects.get_or_create(user=instance)

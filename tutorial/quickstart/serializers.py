@@ -1,3 +1,5 @@
+from django.db import transaction
+from .models import Profile
 from django.contrib.auth.models import Group, User
 from rest_framework import serializers
 from .models import Alumno, Carrera, Imagen, Inscripcion, Materia, Card, Category
@@ -75,18 +77,20 @@ class RegisterSerializer(serializers.ModelSerializer):
         validators=[password_must_have_number]
 )
     
+    @transaction.atomic
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data['email'],
             password=validated_data['password']
         )
+        Profile.objects.get_or_create(user=user)
         return user
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'area']
 
 class CardSerializers(serializers.ModelSerializer):
     image = serializers.ImageField(
@@ -114,3 +118,26 @@ class CardSerializers(serializers.ModelSerializer):
         model = Card
         fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id']
         read_only_fields = ['id']
+
+class CardAvailabilitySerializer(serializers.Serializer):
+    is_available = serializers.BooleanField()
+
+
+class CurrentUserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['username', 'email']
+        extra_kwargs = {
+            'username': {'required': False},
+            'email': {'required': False, 'allow_blank': False},
+        }
+
+    def validate_username(self, value):
+        if User.objects.filter(username__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Este usuario ya está registrado.')
+        return value
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Este correo ya está registrado.')
+        return value

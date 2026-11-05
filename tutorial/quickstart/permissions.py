@@ -17,3 +17,14 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             return obj.user == request.user
         return obj == request.user
 
+
+
+class CanManageMenu(permissions.BasePermission):
+    message = 'Solo el administrador puede gestionar el menú.'
+
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_authenticated and (
+            request.user.is_staff or request.user.is_superuser
+        )
