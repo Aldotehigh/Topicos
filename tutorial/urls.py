@@ -3,6 +3,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from tutorial.quickstart import views
+from tutorial.quickstart.orders import TableOrderViewSet
 from .quickstart.views import CustomAuthToken, RegisterView, LogoutView, ResetTokenView, CardViewSet
 from .quickstart.views import me
 
@@ -14,6 +15,7 @@ router.register(r"users", views.UserViewSet)
 router.register(r"groups", views.GroupViewSet)
 
 router.register(r"cards", CardViewSet)
+router.register(r"table-orders", TableOrderViewSet, basename="table-order")
 
 # Wire up our API using automatic URL routing.
 # Additionally, we include login URLs for the browsable API.

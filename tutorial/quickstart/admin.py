@@ -6,19 +6,20 @@ admin.site.register(Materia)
 admin.site.register(Alumno)
 admin.site.register(Inscripcion)
 admin.site.register(Imagen)
-admin.site.register(Card)
+@admin.register(Card)
+class CardAdmin(admin.ModelAdmin):
+    list_display = ['title', 'category', 'presentation', 'variant_of', 'price', 'is_available']
+    list_filter = ['category', 'presentation', 'is_available']
+    search_fields = ['title']
+    autocomplete_fields = ['variant_of']
+
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ['name', 'area']
     list_filter = ['area']
     search_fields = ['name']
 
-
-
-
-
 from .models import Profile
-
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):

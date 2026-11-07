@@ -1,3 +1,6 @@
+from django.db.models import Exists, OuterRef, Q
+from django.db.models.deletion import ProtectedError
+from django_filters import rest_framework as django_filters
 from .roles import get_user_role
 from .permissions import CanManageMenu
 from .serializers import CardAvailabilitySerializer, CurrentUserUpdateSerializer
@@ -152,21 +155,54 @@ class CardPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 30
 
+class CardFilter(django_filters.FilterSet):
+    is_available = django_filters.BooleanFilter(method='filter_availability')
+
+    class Meta:
+        model = Card
+        fields = ['category', 'category__area', 'is_available']
+
+    def filter_availability(self, queryset, name, value):
+        available_variants = Card.objects.filter(
+            variant_of=OuterRef('pk'), is_available=True,
+        )
+        queryset = queryset.alias(has_available_variant=Exists(available_variants))
+        available = Q(is_available=True) | Q(has_available_variant=True)
+        return queryset.filter(available if value else ~available)
+
+
 class CardViewSet(viewsets.ModelViewSet):
-    queryset = Card.objects.select_related('category').order_by('id')
+    queryset = Card.objects.select_related('category', 'variant_of__category').prefetch_related('variants').order_by('id')
     serializer_class = CardSerializers
     permission_classes = [IsAuthenticated, CanManageMenu]
     pagination_class = CardPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['category', 'is_available']
-    search_fields = ['title', 'descripcion']
+    filterset_class = CardFilter
+    search_fields = ['title', 'menu_title', 'descripcion', 'variants__title', 'variants__descripcion']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action in ('list', 'favorites'):
+            return queryset.filter(variant_of__isnull=True)
+        return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {'detail': 'Elimina primero las presentaciones vinculadas.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
     @action(
         detail=True,
         methods=['get', 'post', 'delete'],
         permission_classes=[IsAuthenticated],
     )
     def favorite(self, request, pk=None):
-        card = self.get_object()
+        selected = self.get_object()
+        card = selected.variant_of or selected
 
         if request.method == 'POST':
             card.favorited_by.add(request.user)
@@ -200,7 +236,8 @@ class CardViewSet(viewsets.ModelViewSet):
     def availability(self, request, pk=None):
         card = self.get_object()
         role = get_user_role(request.user)
-        assigned_area = card.category.area if card.category else None
+        category = (card.variant_of or card).category
+        assigned_area = category.area if category else None
 
         if role != 'admin' and (
             role not in ('kitchen', 'bar') or role != assigned_area

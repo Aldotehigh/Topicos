@@ -92,7 +92,23 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ['id', 'name', 'area']
 
+class CardPresentationSerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(source='imagen', read_only=True)
+    description = serializers.CharField(source='descripcion', read_only=True)
+
+    class Meta:
+        model = Card
+        fields = ['id', 'title', 'presentation', 'price', 'is_available', 'image', 'description']
+
+
+from .order_choices import get_order_choice
+
+
 class CardSerializers(serializers.ModelSerializer):
+    order_choice = serializers.SerializerMethodField()
+    allowed_removals = serializers.ListField(child=serializers.CharField(), read_only=True)
+    presentations = serializers.SerializerMethodField()
+    display_title = serializers.SerializerMethodField()
     image = serializers.ImageField(
         source='imagen',
         required=False,
@@ -116,8 +132,30 @@ class CardSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = Card
-        fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id']
+        fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id', 'presentations', 'display_title', 'allowed_removals', 'order_choice']
         read_only_fields = ['id']
+
+    def get_order_choice(self, card):
+        return get_order_choice(card)
+
+    def get_display_title(self, card):
+        if card.menu_title:
+            return card.menu_title
+        suffix = {'glass': ' (copa)', 'thin': ' (corte delgado)'}.get(card.presentation)
+        if suffix and card.title.lower().endswith(suffix):
+            return card.title[:-len(suffix)]
+        return card.title
+
+    def get_presentations(self, card):
+        if card.variant_of_id:
+            return []
+        variants = list(card.variants.all())
+        if not variants:
+            return []
+        return CardPresentationSerializer(
+            [card, *variants], many=True, context=self.context,
+        ).data
+
 
 class CardAvailabilitySerializer(serializers.Serializer):
     is_available = serializers.BooleanField()

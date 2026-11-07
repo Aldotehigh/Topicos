@@ -30,7 +30,7 @@ DEBUG = True
 ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
-    '192.168.100.12',
+    '192.168.1.70',
 ]
 
 
@@ -154,5 +154,5 @@ AUTH_PASSWORD_VALIDATORS =  [
 
 ]
 
-media_url = '/media/'
-media_root = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
