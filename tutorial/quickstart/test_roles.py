@@ -50,8 +50,8 @@ class RolePermissionsTests(TestCase):
             with self.subTest(url=url):
                 self.assertEqual(client.get(url).status_code, 401)
 
-    def test_non_admin_cannot_create_edit_or_delete_menu(self):
-        for role in ['customer', 'kitchen', 'bar']:
+    def test_customer_and_bar_cannot_create_edit_or_delete_menu(self):
+        for role in ['customer', 'bar']:
             client = self.client_for(role)
             with self.subTest(role=role):
                 self.assertEqual(client.post('/cards/', {'title': 'New'}, format='json').status_code, 403)
@@ -125,7 +125,7 @@ class RolePermissionsTests(TestCase):
     def test_registration_always_creates_customer(self):
         response = APIClient().post('/register/', {
             'username': 'newclient', 'email': 'new@example.test',
-            'password': 'Password123', 'role': 'admin', 'is_staff': True,
+            'password': 'SakuraProfile882!', 'role': 'admin', 'is_staff': True,
         }, format='json')
         self.assertEqual(response.status_code, 201, response.data)
         user = User.objects.get(username='newclient')

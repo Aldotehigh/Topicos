@@ -55,7 +55,8 @@ class Inscripcion(models.Model):
 class Category(models.Model):
     class Area(models.TextChoices):
         KITCHEN = 'kitchen', 'Cocina'
-        BAR = 'bar', 'Barra'
+        BAR = 'bar', 'Barra de bebidas'
+        SUSHI = 'sushi', 'Sushi'
 
     area = models.CharField(
         'Área',
@@ -104,6 +105,16 @@ class Card(models.Model):
             if ingredient.strip()
         ))
 
+    monday_promotion_excluded = models.BooleanField('Excluir del 2x1 de lunes', default=False)
+    order_kind = models.CharField(
+        'Tipo de opciones para pedir', max_length=12, blank=True,
+        choices=[
+            ('steak', 'Término de carne'), ('bites_mix', 'Mix de bocadillos'),
+            ('kushi_mix', 'Mix de brochetas'), ('edamame', 'Preparación de edamame'),
+            ('ramen', 'Caldo de ramen'), ('topping', 'Topping de postre'),
+        ],
+    )
+    flavor = models.CharField('Sabor o proteína', max_length=100, blank=True)
     menu_title = models.CharField('Nombre en el menú', max_length=100, blank=True)
     variant_of = models.ForeignKey(
         'self',
@@ -145,7 +156,7 @@ class Card(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['variant_of', 'presentation'],
+                fields=['variant_of', 'flavor', 'presentation'],
                 name='unique_card_presentation_per_parent',
             ),
         ]
@@ -158,10 +169,10 @@ class Card(models.Model):
                 raise ValidationError({'variant_of': 'Elige un platillo principal válido.'})
             if self.pk and self.variants.exists():
                 raise ValidationError({'variant_of': 'Este platillo ya tiene presentaciones.'})
-            if not self.presentation or not parent.presentation or self.presentation == parent.presentation:
+            if (self.presentation, self.flavor) == (parent.presentation, parent.flavor):
                 raise ValidationError({'presentation': 'La presentación debe ser distinta a la principal.'})
         elif self.pk and self.variants.exists():
-            if not self.presentation or self.variants.filter(presentation=self.presentation).exists():
+            if self.variants.filter(presentation=self.presentation, flavor=self.flavor).exists():
                 raise ValidationError({'presentation': 'Elige una presentación principal distinta a las demás.'})
 
     def __str__(self):
@@ -170,10 +181,14 @@ class Card(models.Model):
 
 class Profile(models.Model):
     class Role(models.TextChoices):
+        OWNER = 'owner', 'Dueño'
         CUSTOMER = 'customer', 'Cliente'
         KITCHEN = 'kitchen', 'Responsable de cocina'
-        BAR = 'bar', 'Responsable de barra'
+        BAR = 'bar', 'Responsable de bebidas'
+        SUSHI = 'sushi', 'Responsable de sushi'
 
+    address = models.JSONField(default=dict, blank=True)
+    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(
         'Rol', max_length=10, choices=Role.choices, default=Role.CUSTOMER,
@@ -199,8 +214,19 @@ def create_user_profile(sender, instance, created, raw=False, **kwargs):
 
 
 class TableOrder(models.Model):
+    fulfillment = models.CharField(max_length=10, default='dine_in', choices=[
+        ('dine_in', 'En mesa'), ('pickup', 'Para recoger'), ('delivery', 'A domicilio'),
+    ])
+    delivery_status = models.CharField(max_length=8, default='accepted', choices=[
+        ('pending', 'Por confirmar'), ('accepted', 'Confirmado'), ('rejected', 'Rechazado'),
+    ])
+    delivery_address = models.JSONField(default=dict, blank=True)
+    promotion_active = models.BooleanField(default=False)
+    tip_percent = models.PositiveSmallIntegerField(default=0, choices=[
+        (0, 'Sin propina sugerida'), (10, '10%'), (15, '15%'), (20, '20%'),
+    ])
     customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name='table_orders')
-    table = models.PositiveSmallIntegerField()
+    table = models.CharField(max_length=8, null=True, blank=True)
     request_key = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -211,19 +237,154 @@ class TableOrder(models.Model):
 
 
 class TableOrderLine(models.Model):
+    promotion_eligible = models.BooleanField(default=False)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     class Status(models.TextChoices):
         REVIEW = 'review', 'Pendiente de revisión'
         RECEIVED = 'received', 'Recibido'
         PREPARING = 'preparing', 'En preparación'
         READY = 'ready', 'Listo'
         DECLINED = 'declined', 'Rechazado'
+        SERVED = 'served', 'Servido'
 
+    product = models.ForeignKey(Card, null=True, blank=True, on_delete=models.SET_NULL)
     order = models.ForeignKey(TableOrder, on_delete=models.CASCADE, related_name='lines')
     title = models.CharField(max_length=100)
     area = models.CharField(max_length=10)
+    course = models.CharField(max_length=10, default='main')
     quantity = models.PositiveSmallIntegerField()
     unit_price = models.DecimalField(max_digits=8, decimal_places=2)
     removals = models.JSONField(default=list)
     selections = models.JSONField(default=list, blank=True)
     allergy = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices)
+
+
+class SupplyRequest(models.Model):
+    author = models.ForeignKey(User, on_delete=models.PROTECT, related_name='supply_requests')
+    area = models.CharField(max_length=10, choices=[('kitchen', 'Cocina'), ('bar', 'Bebidas'), ('sushi', 'Sushi')])
+    required_by = models.DateField()
+    notes = models.TextField(blank=True)
+    request_key = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['author', 'request_key'], name='unique_supply_request_key'),
+        ]
+
+
+class SupplyRequestItem(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pendiente'
+        PURCHASED = 'purchased', 'Comprado'
+        RECEIVED = 'received', 'Recibido en el área'
+
+    request = models.ForeignKey(SupplyRequest, on_delete=models.CASCADE, related_name='items')
+    name = models.CharField(max_length=100)
+    quantity = models.DecimalField(max_digits=9, decimal_places=2)
+    unit = models.CharField(max_length=30)
+    urgent = models.BooleanField(default=False)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    updated_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class OrderPayment(models.Model):
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    discount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    tip_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    order = models.OneToOneField(TableOrder, on_delete=models.PROTECT, related_name='payment')
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+    cash_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    card_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    cash_received = models.DecimalField(max_digits=12, decimal_places=2)
+    recorded_by = models.ForeignKey(User, on_delete=models.PROTECT)
+    paid_at = models.DateTimeField(auto_now_add=True)
+
+
+class InventoryItem(models.Model):
+    area = models.CharField(max_length=10, choices=[('kitchen', 'Cocina'), ('bar', 'Bebidas'), ('sushi', 'Sushi')])
+    name = models.CharField(max_length=100)
+    name_key = models.CharField(max_length=150)
+    unit = models.CharField(max_length=30)
+    unit_key = models.CharField(max_length=60)
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    minimum = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['area', 'name_key', 'unit_key'], name='unique_inventory_item_unit'),
+            models.CheckConstraint(check=models.Q(quantity__gte=0), name='inventory_nonnegative'),
+        ]
+
+
+class InventoryMovement(models.Model):
+    item = models.ForeignKey(InventoryItem, on_delete=models.PROTECT, related_name='movements')
+    kind = models.CharField(max_length=10, choices=[
+        ('opening', 'Saldo inicial'), ('in', 'Entrada'), ('out', 'Salida'),
+        ('count', 'Conteo físico'), ('receipt', 'Recepción de faltantes'),
+    ])
+    delta = models.DecimalField(max_digits=12, decimal_places=3)
+    balance = models.DecimalField(max_digits=12, decimal_places=3)
+    reason = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT)
+    request_key = models.CharField(max_length=64)
+    supply_item = models.OneToOneField(SupplyRequestItem, null=True, blank=True, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['created_by', 'request_key'], name='unique_inventory_movement_request'),
+        ]
+
+
+class PromotionDay(models.Model):
+    def clean(self):
+        super().clean()
+        if self.date and self.date.weekday() != 0:
+            raise ValidationError({'date': 'La promoción solo aplica en lunes.'})
+        if not self.eligible and not self.reason.strip():
+            raise ValidationError({'reason': 'Indica el festivo o la suspensión de clases.'})
+
+    date = models.DateField(unique=True)
+    eligible = models.BooleanField(default=False)
+    reason = models.CharField(max_length=200, blank=True)
+    updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class DiningTable(models.Model):
+    label = models.CharField(max_length=8, unique=True)
+    zone = models.CharField(max_length=10, choices=[('terrace', 'Terraza'), ('salon', 'Salón')])
+    capacity = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f'{self.get_zone_display()} · {self.label} · {self.capacity}'
+
+
+class Reservation(models.Model):
+    customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name='reservations')
+    table = models.ForeignKey(DiningTable, on_delete=models.PROTECT, related_name='reservations')
+    party_size = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    contact_name = models.CharField(max_length=100)
+    phone = models.CharField(max_length=25)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=12, default='pending', choices=[
+        ('pending', 'Por confirmar'), ('confirmed', 'Confirmada'), ('arrived', 'En mesa'),
+        ('completed', 'Terminada'), ('cancelled', 'Cancelada'), ('rejected', 'Rechazada'),
+    ])
+    notes = models.CharField(max_length=300, blank=True)
+    response_note = models.CharField(max_length=300, blank=True)
+    request_key = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['customer', 'request_key'], name='unique_reservation_request'),
+            models.CheckConstraint(check=models.Q(ends_at__isnull=True) | models.Q(ends_at__gt=models.F('starts_at')), name='reservation_positive_duration'),
+        ]
+        ordering = ['starts_at', 'id']

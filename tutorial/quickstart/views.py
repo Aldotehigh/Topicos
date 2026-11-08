@@ -1,7 +1,7 @@
 from django.db.models import Exists, OuterRef, Q
 from django.db.models.deletion import ProtectedError
 from django_filters import rest_framework as django_filters
-from .roles import get_user_role
+from .roles import get_user_role, can_view_business
 from .permissions import CanManageMenu
 from .serializers import CardAvailabilitySerializer, CurrentUserUpdateSerializer
 from rest_framework.exceptions import PermissionDenied
@@ -91,10 +91,11 @@ class RegisterView(APIView):
         if serializer.is_valid(raise_exception=True):
             user = serializer.save()
             return Response({
+                'token': Token.objects.get_or_create(user=user)[0].key,
                 'id': user.id,
                 'email': user.email,
                 'username': user.username,
-                'detail': 'User registered successfully. Log in to obtain the token.'
+                'detail': 'Customer account created.'
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -112,17 +113,26 @@ def me(request):
             )
         serializer = CurrentUserUpdateSerializer(user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        user = serializer.save()
+        user.refresh_from_db()
 
+    profile = getattr(user, 'profile', None)
+    avatar = request.build_absolute_uri(profile.avatar.url) if profile and profile.avatar else None
     role = get_user_role(user)
     return Response({
         'id': user.id,
         'email': user.email,
         'username': user.username,
         'is_staff': user.is_staff,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'avatar': avatar,
+        'address': profile.address if profile else {},
         'role': role,
-        'can_manage_menu': role == 'admin',
-        'area': role if role in ('kitchen', 'bar') else None,
+        'can_manage_menu': role in ('admin', 'owner'),
+        'can_edit_menu': role in ('admin', 'owner', 'kitchen', 'bar', 'sushi'),
+        'can_view_business': can_view_business(user),
+        'area': role if role in ('kitchen', 'bar', 'sushi') else None,
     })
 
 class LogoutView(APIView):
@@ -178,13 +188,47 @@ class CardViewSet(viewsets.ModelViewSet):
     pagination_class = CardPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = CardFilter
-    search_fields = ['title', 'menu_title', 'descripcion', 'variants__title', 'variants__descripcion']
+    search_fields = ['title', 'menu_title', 'descripcion', 'variants__title', 'variants__descripcion', 'flavor', 'variants__flavor']
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if self.request.query_params.get('food_only') == 'true':
+            queryset = queryset.filter(category__area__in=['kitchen', 'sushi'])
         if self.action in ('list', 'favorites'):
             return queryset.filter(variant_of__isnull=True)
         return queryset
+
+    def validate_menu_area(self, serializer):
+        if get_user_role(self.request.user) in ('admin', 'owner'):
+            return
+        instance = serializer.instance
+        category = serializer.validated_data.get('category', instance.category if instance else None)
+        if not category or category.area != get_user_role(self.request.user):
+            raise PermissionDenied('Solo puedes gestionar productos de tu área.')
+
+    def perform_create(self, serializer):
+        self.validate_menu_area(serializer)
+        category = serializer.validated_data.get('category')
+        title = serializer.validated_data.get('title', '').strip()
+        grouped_categories = {'Temakis', 'Ensaladas', 'Ceviches', 'Cerveza', 'Nigiris'}
+        independent = title.casefold() in {'temaki especial', 'take', 'matsu'} or title.casefold().startswith('vaso ')
+        root = None
+        if category and category.name in grouped_categories and not independent:
+            root = Card.objects.filter(category=category, variant_of__isnull=True).exclude(menu_title='').first()
+        if root:
+            flavor = title
+            for prefix in ('Ensalada de ', 'Ceviche de '):
+                flavor = flavor.removeprefix(prefix)
+            if (root.flavor == flavor and not root.presentation) or root.variants.filter(flavor=flavor, presentation='').exists():
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': 'Ya existe una opción con ese nombre.'})
+            serializer.save(variant_of=root, flavor=flavor)
+        else:
+            serializer.save()
+
+    def perform_update(self, serializer):
+        self.validate_menu_area(serializer)
+        serializer.save()
 
     def destroy(self, request, *args, **kwargs):
         try:
@@ -239,8 +283,8 @@ class CardViewSet(viewsets.ModelViewSet):
         category = (card.variant_of or card).category
         assigned_area = category.area if category else None
 
-        if role != 'admin' and (
-            role not in ('kitchen', 'bar') or role != assigned_area
+        if role not in ('admin', 'owner') and (
+            role not in ('kitchen', 'bar', 'sushi') or role != assigned_area
         ):
             raise PermissionDenied('Solo puedes cambiar la disponibilidad de tu área.')
 

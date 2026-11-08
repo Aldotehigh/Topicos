@@ -46,45 +46,58 @@ class ImagenSerializer(serializers.ModelSerializer):
         model = Imagen
         fields = '__all__'
 
+def validate_profile_photo(value):
+    if value and value.size > 5 * 1024 * 1024:
+        raise serializers.ValidationError('Choose an image smaller than 5 MB.')
+    return value
+
+
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=6)
-    email = serializers.EmailField(required=True
-    )
+    password = serializers.CharField(write_only=True, min_length=8, max_length=128)
+    password_confirm = serializers.CharField(write_only=True, required=False)
+    email = serializers.EmailField(required=True, allow_blank=False)
+    avatar = serializers.ImageField(source='profile.avatar', required=False, allow_null=True)
+
     class Meta:
         model = User
-        fields = ['username', 'email', 'password']
+        fields = ['username', 'email', 'password', 'password_confirm', 'first_name', 'last_name', 'avatar']
 
-    def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Email is already in use.")
-        return value
+    def validate_avatar(self, value):
+        return validate_profile_photo(value)
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("Username is already in use.")
+            raise serializers.ValidationError('Username is already in use.')
         return value
 
-    def password_must_have_number(value):
-        if not any(char.isdigit() for char in value):
-            raise serializers.ValidationError(
-            "La contraseña debe contener al menos un número."
-        )
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('Email is already in use.')
         return value
-    
-    password = serializers.CharField(
-        write_only=True,
-        min_length=6,
-        validators=[password_must_have_number]
-)
-    
+
+    def validate(self, data):
+        if data.get('password_confirm', data['password']) != data['password']:
+            raise serializers.ValidationError({'detail': 'The passwords do not match.'})
+        password = data['password']
+        if not any(char.isdigit() for char in password) or not any(char.isalpha() for char in password):
+            raise serializers.ValidationError({'detail': 'Choose a stronger password with at least 8 characters, letters and numbers.'})
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            validate_password(password, User(username=data['username'], email=data['email']))
+        except DjangoValidationError:
+            raise serializers.ValidationError({'detail': 'Choose a stronger password with at least 8 characters, letters and numbers.'})
+        return data
+
     @transaction.atomic
     def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password']
-        )
-        Profile.objects.get_or_create(user=user)
+        profile_data = validated_data.pop('profile', {})
+        validated_data.pop('password_confirm', None)
+        user = User.objects.create_user(**validated_data)
+        profile, _ = Profile.objects.get_or_create(user=user)
+        if 'avatar' in profile_data:
+            profile.avatar = profile_data['avatar']
+            profile.save(update_fields=['avatar'])
         return user
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -93,19 +106,25 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'area']
 
 class CardPresentationSerializer(serializers.ModelSerializer):
+    order_profile = serializers.SerializerMethodField()
+
+    def get_order_profile(self, card):
+        return get_order_profile(card if card.presentation == 'combo' else card.variant_of or card)
+
     image = serializers.ImageField(source='imagen', read_only=True)
     description = serializers.CharField(source='descripcion', read_only=True)
 
     class Meta:
         model = Card
-        fields = ['id', 'title', 'presentation', 'price', 'is_available', 'image', 'description']
+        fields = ['id', 'title', 'flavor', 'presentation', 'price', 'is_available', 'image', 'description', 'order_profile']
 
 
-from .order_choices import get_order_choice
+from .order_choices import get_order_choice, get_order_profile
 
 
 class CardSerializers(serializers.ModelSerializer):
     order_choice = serializers.SerializerMethodField()
+    order_profile = serializers.SerializerMethodField()
     allowed_removals = serializers.ListField(child=serializers.CharField(), read_only=True)
     presentations = serializers.SerializerMethodField()
     display_title = serializers.SerializerMethodField()
@@ -132,8 +151,11 @@ class CardSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = Card
-        fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id', 'presentations', 'display_title', 'allowed_removals', 'order_choice']
+        fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id', 'presentations', 'display_title', 'allowed_removals', 'order_choice', 'order_profile']
         read_only_fields = ['id']
+
+    def get_order_profile(self, card):
+        return get_order_profile(card if card.presentation == 'combo' else card.variant_of or card)
 
     def get_order_choice(self, card):
         return get_order_choice(card)
@@ -162,9 +184,35 @@ class CardAvailabilitySerializer(serializers.Serializer):
 
 
 class CurrentUserUpdateSerializer(serializers.ModelSerializer):
+    address = serializers.JSONField(source='profile.address', required=False)
+
+    def validate_address(self, value):
+        if value == {}:
+            return {}
+        from .addresses import AddressSerializer
+        serializer = AddressSerializer(data=value)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    avatar = serializers.ImageField(source='profile.avatar', required=False, allow_null=True)
+
+    def validate_avatar(self, value):
+        return validate_profile_photo(value)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop('profile', {})
+        instance = super().update(instance, validated_data)
+        if profile_data:
+            profile, _ = Profile.objects.get_or_create(user=instance)
+            for key, value in profile_data.items():
+                setattr(profile, key, value)
+            profile.save(update_fields=list(profile_data))
+        return instance
+
     class Meta:
         model = User
-        fields = ['username', 'email']
+        fields = ['username', 'email', 'first_name', 'last_name', 'avatar', 'address']
         extra_kwargs = {
             'username': {'required': False},
             'email': {'required': False, 'allow_blank': False},
