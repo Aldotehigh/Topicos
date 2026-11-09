@@ -1,0 +1,6 @@
+﻿.venv/
+.venv_original/
+.venv_windows/
+__pycache__/
+*.pyc
+db_respaldo.sqlite3
