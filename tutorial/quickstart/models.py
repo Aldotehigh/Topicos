@@ -74,6 +74,7 @@ class Category(models.Model):
         return self.name
 
 class Card(models.Model):
+    description_en = models.TextField('Descripción en inglés', blank=True)
     class Presentation(models.TextChoices):
         FULL = 'full', 'Orden completa'
         HALF = 'half', 'Media orden'
@@ -112,6 +113,7 @@ class Card(models.Model):
             ('steak', 'Término de carne'), ('bites_mix', 'Mix de bocadillos'),
             ('kushi_mix', 'Mix de brochetas'), ('edamame', 'Preparación de edamame'),
             ('ramen', 'Caldo de ramen'), ('topping', 'Topping de postre'),
+            ('yaki_udon', 'Fideo y proteína de Yaki Udon'),
         ],
     )
     flavor = models.CharField('Sabor o proteína', max_length=100, blank=True)
@@ -214,6 +216,7 @@ def create_user_profile(sender, instance, created, raw=False, **kwargs):
 
 
 class TableOrder(models.Model):
+    dispatched_at = models.DateTimeField(null=True, blank=True)
     fulfillment = models.CharField(max_length=10, default='dine_in', choices=[
         ('dine_in', 'En mesa'), ('pickup', 'Para recoger'), ('delivery', 'A domicilio'),
     ])

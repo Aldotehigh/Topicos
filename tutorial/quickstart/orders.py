@@ -1,5 +1,6 @@
 from decimal import Decimal
 from django.db import transaction
+from django.utils import timezone
 from django.db.models import Prefetch, Case, When, IntegerField, Exists, OuterRef, Q
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -81,7 +82,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TableOrder
-        fields = ('id', 'table', 'created_at', 'lines', 'tip_percent', 'fulfillment', 'delivery_status', 'delivery_address', 'pricing')
+        fields = ('id', 'table', 'created_at', 'lines', 'tip_percent', 'fulfillment', 'delivery_status', 'delivery_address', 'dispatched_at', 'pricing')
 
 
 class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
@@ -194,6 +195,8 @@ class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
         target = serializer.validated_data['status']
         if order.fulfillment == 'delivery' and order.delivery_status != 'accepted' and target == 'served':
             raise ValidationError({'detail': 'The owner must confirm the delivery address first.'})
+        if order.fulfillment == 'delivery' and target == 'served':
+            raise ValidationError({'detail': 'The owner must complete delivery from the order.'})
         if order.fulfillment == 'dine_in' and target == 'preparing' and line.course in ('main', 'dessert') and order.lines.filter(
             course='starter',
         ).exclude(status__in=['served', 'declined']).exists():
@@ -238,3 +241,29 @@ class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if target == 'rejected':
             order.lines.update(status='declined')
         return Response(self.get_serializer(order).data)
+
+
+    @action(detail=True, methods=['post'], url_path='delivery-progress')
+    @transaction.atomic
+    def delivery_progress(self, request, pk=None):
+        if not can_view_business(request.user):
+            raise PermissionDenied()
+        visible = self.get_object()
+        order = TableOrder.objects.select_for_update().get(pk=visible.pk)
+        if order.fulfillment != 'delivery' or order.delivery_status != 'accepted':
+            raise ValidationError({'detail': 'The owner must confirm the delivery address first.'})
+        items = order.lines.exclude(status='declined')
+        target = request.data.get('status')
+        if target == 'dispatched':
+            if not order.dispatched_at:
+                if not items.filter(status='ready').exists() or items.exclude(status__in=['ready', 'served']).exists():
+                    raise ValidationError({'detail': 'Wait until every available item is ready.'})
+                order.dispatched_at = timezone.now()
+                order.save(update_fields=['dispatched_at'])
+        elif target == 'delivered':
+            if not order.dispatched_at:
+                raise ValidationError({'detail': 'Mark the order as dispatched first.'})
+            items.filter(status='ready').update(status='served')
+        else:
+            raise ValidationError({'detail': 'Choose a valid delivery status.'})
+        return Response(self.get_serializer(self.get_object()).data)

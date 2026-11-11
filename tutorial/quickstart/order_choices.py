@@ -18,6 +18,13 @@ def get_order_profile(card):
     bar = bool(card.category and card.category.area == 'bar')
     simple = category in ('Nigiris', 'Postres')
     groups = []
+    if card.order_kind == 'yaki_udon':
+        groups.extend([
+            choice('noodle', 'Choose your noodles', [('udon', 'Udon'), ('soba', 'Soba')]),
+            choice('protein', 'Choose a protein', [
+                ('chicken', 'Chicken'), ('beef', 'Beef'), ('shrimp', 'Shrimp'),
+            ]),
+        ])
     if card.presentation == 'combo':
         proteins = Card.objects.filter(category=card.category, is_available=True,
             presentation__in=['beef', 'chicken', 'white_fish', 'shrimp', 'octopus', 'salmon'],

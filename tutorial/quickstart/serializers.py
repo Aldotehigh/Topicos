@@ -116,7 +116,7 @@ class CardPresentationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Card
-        fields = ['id', 'title', 'flavor', 'presentation', 'price', 'is_available', 'image', 'description', 'order_profile']
+        fields = ['id', 'title', 'flavor', 'presentation', 'price', 'is_available', 'image', 'description', 'description_en', 'order_profile']
 
 
 from .order_choices import get_order_choice, get_order_profile
@@ -151,7 +151,7 @@ class CardSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = Card
-        fields = ['id', 'title', 'image', 'description', 'price', 'is_available', 'category', 'category_id', 'presentations', 'display_title', 'allowed_removals', 'order_choice', 'order_profile']
+        fields = ['id', 'title', 'image', 'description', 'description_en', 'price', 'is_available', 'category', 'category_id', 'presentations', 'display_title', 'allowed_removals', 'order_choice', 'order_profile']
         read_only_fields = ['id']
 
     def get_order_profile(self, card):

@@ -166,6 +166,26 @@ class PromotionsDeliveryTests(TestCase):
         self.assertEqual(owner.post(f'/table-orders/{order_id}/confirm-delivery/', {'accept': True}, format='json').status_code, 200)
         self.assertEqual(kitchen.post(f'/table-orders/{order_id}/line-status/', {'line_id': line_id, 'status': 'ready'}, format='json').status_code, 200)
 
+    def test_owner_dispatches_ready_delivery_and_customer_tracks_it(self):
+        customer = self.client_for(self.customer)
+        customer.patch('/me', {'address': self.address}, format='json')
+        created = self.submit([self.line(self.cheap)], fulfillment='delivery', address_confirmed=True)
+        order_id = created.data['id']
+        owner = self.client_for(self.owner)
+        url = f'/table-orders/{order_id}/delivery-progress/'
+        owner.post(f'/table-orders/{order_id}/confirm-delivery/', {'accept': True}, format='json')
+        self.assertEqual(owner.post(url, {'status': 'dispatched'}, format='json').status_code, 400)
+        TableOrder.objects.get(pk=order_id).lines.update(status='ready')
+        self.assertEqual(customer.post(url, {'status': 'dispatched'}, format='json').status_code, 403)
+        self.assertEqual(owner.post(url, {'status': 'delivered'}, format='json').status_code, 400)
+        dispatched = owner.post(url, {'status': 'dispatched'}, format='json')
+        self.assertEqual(dispatched.status_code, 200)
+        order = customer.get(f'/table-orders/{order_id}/').data
+        self.assertTrue(order['dispatched_at'])
+        self.assertEqual(order['lines'][0]['status'], 'ready')
+        self.assertEqual(owner.post(url, {'status': 'delivered'}, format='json').status_code, 200)
+        self.assertEqual(customer.get(f'/table-orders/{order_id}/').data['lines'][0]['status'], 'served')
+
     def test_delivery_rejection_cancels_items(self):
         self.client_for(self.customer).patch('/me', {'address': self.address}, format='json')
         created = self.submit([self.line(self.cheap)], fulfillment='delivery', address_confirmed=True)
