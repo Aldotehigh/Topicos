@@ -215,7 +215,7 @@ class BusinessViewSet(viewsets.ViewSet):
                 'id': order.pk, 'table': order.table, 'created_at': order.created_at,
                 'fulfillment': order.fulfillment, 'delivery_status': order.delivery_status, 'delivery_address': order.delivery_address,
                 'subtotal': pricing['subtotal'], 'discount': pricing['discount'],
-                'total': str(total), 'tip_suggestion': str((total * order.tip_percent / 100).quantize(Decimal('0.01'))), 'can_pay': total > 0 and order.delivery_status == 'accepted' and all(line.status == 'served' for line in lines),
+                'total': str(total), 'tip_suggestion': str((total * order.tip_percent / 100).quantize(Decimal('0.01'))), 'can_pay': not hasattr(order, 'payment') and total > 0 and order.delivery_status == 'accepted' and all(line.status == 'served' for line in lines),
                 'lines': [{'title': line.title, 'quantity': line.quantity, 'price': str(line.unit_price), 'status': line.status} for line in lines],
             })
         return Response(result)
@@ -232,6 +232,9 @@ class BusinessViewSet(viewsets.ViewSet):
         previous = OrderPayment.objects.filter(order=order).first()
         if previous:
             return Response(payment_data(previous))
+        transfer = getattr(order, 'transfer_submission', None)
+        if transfer and transfer.status == 'pending':
+            raise ValidationError({'detail': 'Review the submitted bank transfer before collecting another payment.'})
         lines = list(order.lines.exclude(status='declined'))
         if not lines or any(line.status != 'served' for line in lines):
             raise ValidationError({'detail': 'Serve all items before collecting payment.'})
@@ -269,7 +272,7 @@ class BusinessViewSet(viewsets.ViewSet):
             paid_at__gte=datetime.combine(start, time.min, tzinfo=business_zone),
             paid_at__lt=datetime.combine(end + timedelta(days=1), time.min, tzinfo=business_zone),
         )
-        totals = payments.aggregate(total=Sum('total'), cash=Sum('cash_amount'), card=Sum('card_amount'), count=Count('id'), tips=Sum('tip_amount'), discounts=Sum('discount'))
+        totals = payments.aggregate(total=Sum('total'), cash=Sum('cash_amount'), card=Sum('card_amount'), count=Count('id'), tips=Sum('tip_amount'), discounts=Sum('discount'), transfer=Sum('transfer_amount'), online=Sum('online_amount'))
         daily = [{
             'date': str(row['day']), 'total': str(row['total']), 'orders': row['orders'],
         } for row in payments.annotate(day=TruncDate('paid_at', tzinfo=business_zone)).values('day').annotate(
@@ -284,6 +287,8 @@ class BusinessViewSet(viewsets.ViewSet):
         pending_stock = InventoryItem.objects.filter(quantity__lte=F('minimum'))
         return Response({
             'start': str(start), 'end': str(end), 'timezone': str(business_zone), 'total': str(revenue),
+            'online': str(totals['online'] or Decimal('0')),
+            'transfer': str(totals['transfer'] or Decimal('0')),
             'cash': str(totals['cash'] or Decimal('0')), 'card': str(totals['card'] or Decimal('0')),
             'tip_total': str(totals['tips'] or Decimal('0')), 'collected_total': str(revenue + (totals['tips'] or Decimal('0'))), 'daily': daily,
             'discount_total': str(totals['discounts'] or Decimal('0')),

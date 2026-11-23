@@ -4,3 +4,4 @@
 __pycache__/
 *.pyc
 db_respaldo.sqlite3
+private-payment-receipts/

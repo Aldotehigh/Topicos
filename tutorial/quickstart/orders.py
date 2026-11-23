@@ -8,7 +8,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Card, TableOrder, TableOrderLine, DiningTable
+from .models import Card, TableOrder, TableOrderLine, DiningTable, BankTransferSettings
 from .roles import get_user_role
 from .order_choices import resolve_order_options
 from .order_pricing import current_promotion, eligible_product, order_price
@@ -35,11 +35,20 @@ class OrderInput(serializers.Serializer):
     fulfillment = serializers.ChoiceField(choices=['dine_in', 'pickup', 'delivery'], default='dine_in')
     address_confirmed = serializers.BooleanField(default=False)
     expected_total = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+    table_code = serializers.UUIDField(required=False)
+    payment_method = serializers.ChoiceField(choices=['on_receipt', 'transfer', 'payment_link'], default='on_receipt')
     table = serializers.CharField(max_length=8, required=False, allow_null=True)
     request_key = serializers.CharField(max_length=64)
     lines = OrderLineInput(many=True, allow_empty=False, max_length=30)
 
     def validate(self, data):
+        if data['payment_method'] == 'transfer' and not BankTransferSettings.objects.filter(enabled=True).exists():
+            raise ValidationError({'detail': 'Bank transfer is not available yet.'})
+        if data['fulfillment'] == 'dine_in' and data.get('table_code'):
+            selected = DiningTable.objects.filter(ordering_code=data['table_code'], active=True).first()
+            if not selected:
+                raise ValidationError({'detail': 'This table code is no longer available.'})
+            data['table'] = selected.label
         if data['fulfillment'] == 'dine_in' and not data.get('table'):
             raise ValidationError({'detail': 'Enter a table number.'})
         if data['fulfillment'] == 'dine_in':
@@ -78,11 +87,29 @@ class OrderSerializer(serializers.ModelSerializer):
             return None
         return order_price(order)
 
+    checkout_url = serializers.SerializerMethodField()
+
+    def get_checkout_url(self, order):
+        if get_user_role(self.context['request'].user) in ('kitchen', 'bar', 'sushi'):
+            return ''
+        return order.checkout_url
+
+    transfer = serializers.SerializerMethodField()
+
+    def get_transfer(self, order):
+        if get_user_role(self.context['request'].user) in ('kitchen', 'bar', 'sushi'):
+            return None
+        submission = getattr(order, 'transfer_submission', None)
+        if not submission:
+            return None
+        return {'status': submission.status, 'amount': str(submission.amount),
+                'reference': submission.reference, 'note': submission.note, 'tip_amount': str(submission.tip_amount)}
+
     lines = OrderLineSerializer(many=True)
 
     class Meta:
         model = TableOrder
-        fields = ('id', 'table', 'created_at', 'lines', 'tip_percent', 'fulfillment', 'delivery_status', 'delivery_address', 'dispatched_at', 'pricing')
+        fields = ('id', 'table', 'created_at', 'lines', 'tip_percent', 'fulfillment', 'delivery_status', 'delivery_address', 'dispatched_at', 'pricing', 'payment_method', 'transfer', 'checkout_url')
 
 
 class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
@@ -128,7 +155,7 @@ class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
         order, created = TableOrder.objects.get_or_create(
             customer=request.user, request_key=payload['request_key'],
             defaults={
-                'table': payload.get('table'), 'tip_percent': payload['tip_percent'],
+                'table': payload.get('table'), 'payment_method': payload['payment_method'], 'tip_percent': payload['tip_percent'],
                 'fulfillment': payload['fulfillment'], 'delivery_address': payload['delivery_address'],
                 'delivery_status': 'pending' if payload['fulfillment'] == 'delivery' else 'accepted',
                 'promotion_active': current_promotion()['active'],
@@ -193,6 +220,8 @@ class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if not line or (role not in ('admin', 'owner') and role != line.area):
             raise PermissionDenied()
         target = serializer.validated_data['status']
+        if target == 'declined' and hasattr(order, 'payment'):
+            raise ValidationError({'detail': 'This order is already paid. Contact the owner for a refund.'})
         if order.fulfillment == 'delivery' and order.delivery_status != 'accepted' and target == 'served':
             raise ValidationError({'detail': 'The owner must confirm the delivery address first.'})
         if order.fulfillment == 'delivery' and target == 'served':
@@ -234,6 +263,8 @@ class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(self.get_serializer(order).data)
         if order.delivery_status != 'pending':
             raise ValidationError({'detail': 'This delivery has already been reviewed.'})
+        if target == 'rejected' and hasattr(order, 'payment'):
+            raise ValidationError({'detail': 'This order is already paid. Contact the owner for a refund.'})
         if target == 'rejected' and order.lines.exclude(status__in=['review', 'received', 'declined']).exists():
             raise ValidationError({'detail': 'Preparation has started. Contact the customer before changing this delivery.'})
         order.delivery_status = target

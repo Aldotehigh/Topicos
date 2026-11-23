@@ -3,6 +3,15 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+import uuid
+from pathlib import Path
+from django.conf import settings
+from django.core.files.storage import FileSystemStorage
+
+
+def private_receipt_storage():
+    return FileSystemStorage(location=Path(settings.BASE_DIR) / 'private-payment-receipts')
+
 
 class Carrera(models.Model):
     nombre = models.CharField(max_length=100)
@@ -216,6 +225,12 @@ def create_user_profile(sender, instance, created, raw=False, **kwargs):
 
 
 class TableOrder(models.Model):
+    checkout_url = models.URLField(max_length=500, blank=True)
+    payment_method = models.CharField(max_length=12, default='on_receipt', choices=[
+        ('on_receipt', 'Al recibir o en caja'), ('transfer', 'Transferencia bancaria'),
+        ('payment_link', 'Enlace de pago'),
+    ])
+
     dispatched_at = models.DateTimeField(null=True, blank=True)
     fulfillment = models.CharField(max_length=10, default='dine_in', choices=[
         ('dine_in', 'En mesa'), ('pickup', 'Para recoger'), ('delivery', 'A domicilio'),
@@ -294,6 +309,9 @@ class SupplyRequestItem(models.Model):
 
 
 class OrderPayment(models.Model):
+    online_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    transfer_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     tip_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
@@ -358,6 +376,8 @@ class PromotionDay(models.Model):
 
 
 class DiningTable(models.Model):
+    ordering_code = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+
     label = models.CharField(max_length=8, unique=True)
     zone = models.CharField(max_length=10, choices=[('terrace', 'Terraza'), ('salon', 'Salón')])
     capacity = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
@@ -391,3 +411,40 @@ class Reservation(models.Model):
             models.CheckConstraint(check=models.Q(ends_at__isnull=True) | models.Q(ends_at__gt=models.F('starts_at')), name='reservation_positive_duration'),
         ]
         ordering = ['starts_at', 'id']
+
+
+class BankTransferSettings(models.Model):
+    enabled = models.BooleanField(default=False)
+    bank = models.CharField(max_length=100, blank=True)
+    beneficiary = models.CharField(max_length=150, blank=True)
+    clabe = models.CharField(max_length=18, blank=True)
+    instructions = models.CharField(max_length=300, blank=True)
+
+    def clean(self):
+        super().clean()
+        if self.enabled:
+            if not self.bank.strip() or not self.beneficiary.strip():
+                raise ValidationError('Enter the bank and beneficiary.')
+            digits = self.clabe.strip()
+            if not digits.isdigit() or len(digits) != 18:
+                raise ValidationError({'clabe': 'Enter an 18-digit CLABE.'})
+            checksum = (10 - sum(int(digit) * (3, 7, 1)[index % 3] % 10 for index, digit in enumerate(digits[:17])) % 10) % 10
+            if checksum != int(digits[-1]):
+                raise ValidationError({'clabe': 'The CLABE check digit is invalid.'})
+
+    def __str__(self):
+        return self.bank
+
+
+class TransferSubmission(models.Model):
+    tip_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    order = models.OneToOneField(TableOrder, on_delete=models.PROTECT, related_name='transfer_submission')
+    receipt = models.ImageField(upload_to='receipts/', storage=private_receipt_storage)
+    reference = models.CharField(max_length=100)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=10, default='pending', choices=[
+        ('pending', 'Por verificar'), ('approved', 'Verificado'), ('rejected', 'Rechazado'),
+    ])
+    note = models.CharField(max_length=300, blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.PROTECT)
+    updated_at = models.DateTimeField(auto_now=True)

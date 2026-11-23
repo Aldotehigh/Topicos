@@ -15,7 +15,11 @@ from django.conf.urls.static import static
 
 from tutorial.quickstart.reservations import ReservationViewSet, DiningTableViewSet
 
+from tutorial.quickstart.checkout import CheckoutViewSet, TableAccessViewSet
+
 router = routers.DefaultRouter()
+router.register(r'checkout', CheckoutViewSet, basename='checkout')
+router.register(r'table-access', TableAccessViewSet, basename='table-access')
 router.register(r"dining-tables", DiningTableViewSet, basename="dining-table")
 router.register(r"reservations", ReservationViewSet, basename="reservation")
 router.register(r"users", views.UserViewSet)
