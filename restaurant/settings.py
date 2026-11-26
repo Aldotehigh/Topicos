@@ -9,11 +9,9 @@ import os
 from pathlib import Path
 
 
-# Directorio principal del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Configuración de seguridad
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 
 if not SECRET_KEY:
@@ -21,10 +19,8 @@ if not SECRET_KEY:
         "Debes configurar la variable de entorno DJANGO_SECRET_KEY."
     )
 
-# Solo para desarrollo
 DEBUG = True
 
-# Direcciones autorizadas para acceder al backend
 ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
@@ -33,11 +29,11 @@ ALLOWED_HOSTS = [
     '192.168.100.31',
     '192.168.1.70',
     '10.0.2.2',
-    '192.168.100.15'
+    '192.168.100.15',
+    '192.168.0.12',
 ]
 
 
-# Aplicaciones instaladas
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -54,7 +50,6 @@ INSTALLED_APPS = [
 ]
 
 
-# Middleware
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -66,11 +61,9 @@ MIDDLEWARE = [
 ]
 
 
-# Configuración principal
 ROOT_URLCONF = 'restaurant.urls'
 
 
-# Plantillas
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -88,11 +81,9 @@ TEMPLATES = [
 ]
 
 
-# WSGI
 WSGI_APPLICATION = 'restaurant.wsgi.application'
 
 
-# Base de datos SQLite
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -101,7 +92,6 @@ DATABASES = {
 }
 
 
-# Validación de contraseñas
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -121,7 +111,6 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# Idioma y zona horaria
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
@@ -131,15 +120,12 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Archivos estáticos
 STATIC_URL = 'static/'
 
 
-# Llave primaria predeterminada
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
@@ -153,8 +139,6 @@ REST_FRAMEWORK = {
     ],
 }
 
-
-# Archivos multimedia
 MEDIA_URL = '/media/'
 
 MEDIA_ROOT = BASE_DIR / 'media'

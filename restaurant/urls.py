@@ -34,8 +34,6 @@ router.register(r"business", BusinessViewSet, basename="business")
 router.register(r"inventory", InventoryViewSet, basename="inventory")
 router.register(r"promotions", PromotionViewSet, basename="promotion")
 
-# Wire up our API using automatic URL routing.
-# Additionally, we include login URLs for the browsable API.
 urlpatterns = [
     path("preferences/", preferences, name="preferences"),
     path("admin/", admin.site.urls),

@@ -130,7 +130,6 @@ class PromotionsDeliveryTests(TestCase):
     def test_combined_proteins_require_two_or_three_valid_choices(self):
         client = self.client_for(self.customer)
         profile = client.get(f'/cards/{self.combo.pk}/').data['order_profile']
-        # Direct detail of a combined presentation must expose its protein choices.
         self.assertTrue(any(group['key'] == 'proteins' for group in profile['groups']))
         for proteins, expected in [(['beef'], 400), (['beef', 'ribeye'], 400), (['beef', 'chicken'], 201)]:
             result = self.submit([self.line(self.combo, choices={'proteins': proteins})])

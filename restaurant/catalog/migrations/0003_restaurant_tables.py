@@ -22,7 +22,6 @@ def seed_restaurant(apps, schema_editor):
     product_ids = Card.objects.using(alias).filter(category_id__in=sushi_ids).values('pk')
     Line = apps.get_model('catalog', 'TableOrderLine')
     Line.objects.using(alias).filter(product_id__in=product_ids, status__in=['review','received','preparing','ready']).update(area='sushi')
-    # Old lines did not always retain their product FK. Only route unambiguous titles.
     for line in Line.objects.using(alias).filter(product__isnull=True, status__in=['review','received','preparing','ready']):
         areas = set(Card.objects.using(alias).filter(title=line.title).values_list('category__area', flat=True))
         if areas == {'sushi'}:

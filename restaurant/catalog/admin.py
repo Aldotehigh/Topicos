@@ -78,7 +78,7 @@ class ReservationAdmin(admin.ModelAdmin):
     list_display = ('id', 'contact_name', 'table', 'party_size', 'starts_at', 'ends_at', 'status')
     list_filter = ('status', 'table__zone')
     search_fields = ('contact_name', 'phone')
-    # Confirmations must use the API so overlap validation cannot be bypassed.
+
     readonly_fields = tuple(field.name for field in Reservation._meta.fields)
     def has_add_permission(self, request):
         return False
@@ -86,7 +86,7 @@ class ReservationAdmin(admin.ModelAdmin):
         return False
 
 
-# Restaurant roles are managed through Profile, not Django groups.
+
 if admin.site.is_registered(Group):
     admin.site.unregister(Group)
 

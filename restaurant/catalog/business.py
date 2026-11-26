@@ -65,7 +65,6 @@ def write_movement(item, user, kind, amount, reason, request_key, supply_item=No
 
 
 def receive_supply(supply_item, user):
-    # The caller changes the supply status and stock within the same transaction.
     if InventoryMovement.objects.filter(supply_item=supply_item).exists():
         return
     identity = inventory_identity(supply_item.name, supply_item.unit, supply_item.request.area)

@@ -12,7 +12,6 @@ from .addresses import AddressSerializer
 from .models import DiningTable, Reservation
 from .roles import get_user_role
 
-# Reservations use the restaurant's local time regardless of the phone's zone.
 RESTAURANT_ZONE = ZoneInfo('America/Mexico_City')
 
 
@@ -75,7 +74,6 @@ class ReservationViewSet(viewsets.ReadOnlyModelViewSet):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        # Keep every active request, plus a bounded history.
         history = queryset.filter(status__in=['completed', 'cancelled', 'rejected']).order_by('-starts_at').values('pk')[:50]
         from django.db.models import Q
         return Response(self.get_serializer(queryset.filter(Q(status__in=['pending', 'confirmed', 'arrived']) | Q(pk__in=history)), many=True).data)
@@ -103,7 +101,6 @@ class ReservationViewSet(viewsets.ReadOnlyModelViewSet):
         payload = StatusInput(data=request.data)
         payload.is_valid(raise_exception=True)
         visible = self.get_object()
-        # Serialize competing confirmations on the table, including SQLite writes.
         table = DiningTable.objects.select_for_update().get(pk=visible.table_id)
         DiningTable.objects.filter(pk=table.pk).update(capacity=F('capacity'))
         booking = Reservation.objects.select_for_update().get(pk=visible.pk)

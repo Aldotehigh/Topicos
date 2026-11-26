@@ -127,9 +127,9 @@ class ResetTokenView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        #Elimina el token actual si existe
+
         Token.objects.filter(user=request.user).delete()
-       #Crea el nuevo token
+
         token = Token.objects.create(user=request.user)
         return Response(
             {

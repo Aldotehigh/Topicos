@@ -15,8 +15,6 @@ def rebuild_line(line):
         return None, 'This product is no longer on the menu.'
     option_card = card if card.presentation == 'combo' else parent
     profile = get_order_profile(option_card)
-    # Old orders saved labels rather than option IDs. Restore only unambiguous
-    # exact matches and validate them against today's recipe and option rules.
     choices = {}
     labels = list(line.selections or [])
     options_by_label = {}

@@ -187,7 +187,6 @@ class TableOrderViewSet(viewsets.ReadOnlyModelViewSet):
             profile, labels, price, needs_confirmation = resolve_order_options(
                 card if card.presentation == 'combo' else parent, line.get('choices', {}), line.get('selections', []),
             )
-            # A grouped presentation keeps its own price.
             if not profile['highest_price']:
                 price = card.price
             if removals and not profile['show_removals']:
